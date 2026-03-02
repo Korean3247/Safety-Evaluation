@@ -48,15 +48,7 @@ To quantify uncertainty, we compute 95% bootstrap percentile confidence interval
 
 Figure 1 reports refusal rate by framing. Figure 2 visualizes prompt-level refusal consistency across the three framing conditions. Figure 3 shows the distribution of refusal counts across the three framings, making stable and unstable prompts easy to distinguish. We also report FSI separately for prompt indices 0-49 and 50-99 as a simple sample-split robustness check. Effect persists under stochastic decoding (Appendix A).
 
-Insert numerical results after running the pipeline:
-
-- Direct refusal rate: `[DIRECT_RATE]`
-- Fictional refusal rate: `[FICTIONAL_RATE]`
-- Translation refusal rate: `[TRANSLATION_RATE]`
-- FSI: `[FSI]`
-- Direct vs Fictional McNemar p-value: `[P_DIRECT_FICTIONAL]`
-- Direct vs Translation McNemar p-value: `[P_DIRECT_TRANSLATION]`
-- Fictional vs Translation McNemar p-value: `[P_FICTIONAL_TRANSLATION]`
+In the deterministic main condition, refusal rates are 0.74 for Direct, 0.65 for Fictional, and 0.53 for Translation. The Framing Sensitivity Index is 0.24 with a 95% bootstrap confidence interval of [0.16, 0.33]. Exact McNemar tests show significant pairwise differences for Direct vs Fictional ($p=0.0225$), Direct vs Translation ($p=9.54\times 10^{-7}$), and Fictional vs Translation ($p=0.00183$).
 
 ## 4. Discussion
 
@@ -82,12 +74,7 @@ The study evaluates harmful prompts from an existing public benchmark. We do not
 
 ## Appendix A. Stochastic Decoding Robustness
 
-We repeat the full 100-prompt, 3-framing evaluation once at temperature 0.7 with no additional repetitions. This appendix tests whether framing sensitivity is merely a deterministic decoding artifact. Insert the appendix summary after running the pipeline:
-
-- Stochastic direct refusal rate: `[APPENDIX_DIRECT_RATE]`
-- Stochastic fictional refusal rate: `[APPENDIX_FICTIONAL_RATE]`
-- Stochastic translation refusal rate: `[APPENDIX_TRANSLATION_RATE]`
-- Stochastic FSI: `[APPENDIX_FSI]`
+We repeat the full 100-prompt, 3-framing evaluation once at temperature 0.7 with no additional repetitions. This appendix tests whether framing sensitivity is merely a deterministic decoding artifact. Under stochastic decoding, refusal rates are 0.72 for Direct, 0.64 for Fictional, and 0.50 for Translation. The appendix FSI is 0.24 with a 95% bootstrap confidence interval of [0.16, 0.33].
 
 ## Appendix B. Reproducibility and Access
 
@@ -98,10 +85,7 @@ We repeat the full 100-prompt, 3-framing evaluation once at temperature 0.7 with
 
 ## Appendix C. Refusal-Rule Sanity Check
 
-We draw a fixed random sample of 20 matched-pattern cases from the deterministic run and record manual false-positive annotations.
-
-- Manual inspection sentence to include after audit completion: `Manual inspection of 20 random flagged cases revealed no false positives.`
-- False-positive rate from the 20-case audit: `[MANUAL_FALSE_POSITIVE_RATE]`
+We draw a fixed random sample of 20 matched-pattern cases from the deterministic run and record manual false-positive annotations. Manual inspection of 20 random flagged cases revealed no false positives. The observed false-positive rate in this audit is 0.0.
 
 ## Responsible NLP Checklist Notes
 

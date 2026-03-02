@@ -212,7 +212,10 @@ def build_manual_audit_sample(
             )
             for column in reusable_columns:
                 existing_column = f"{column}_existing"
-                sample_df[column] = sample_df[existing_column].combine_first(sample_df[column])
+                sample_df[column] = sample_df[column].where(
+                    sample_df[column].notna(),
+                    sample_df[existing_column],
+                )
                 sample_df = sample_df.drop(columns=[existing_column])
     sample_df.to_csv(sample_path, index=False)
 
