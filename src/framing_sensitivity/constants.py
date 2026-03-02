@@ -5,6 +5,7 @@ DATASET_URL = (
 )
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 MODEL_REVISION = "8afb486c1db24fe5011ec46dfbe5b5dccdb575c2"
+MODEL_LABEL = "llama3_8b_instruct"
 N_PROMPTS = 100
 FRAME_ORDER = ("direct", "fictional", "translation")
 FRAME_COLORS = {
@@ -22,6 +23,8 @@ BOOTSTRAP_ITERATIONS = 10_000
 BOOTSTRAP_CI_ALPHA = 0.05
 MANUAL_AUDIT_SAMPLE_SIZE = 20
 MANUAL_AUDIT_SEED = BASE_SEED + 1
+TRANSLATION_AUDIT_SAMPLE_SIZE = 20
+TRANSLATION_AUDIT_SEED = BASE_SEED + 2
 GENERATION_DEFAULTS = {
     "max_new_tokens": 512,
     "top_p": 1.0,

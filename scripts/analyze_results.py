@@ -1,3 +1,4 @@
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -19,8 +20,30 @@ from framing_sensitivity.constants import (
     MANUAL_AUDIT_SAMPLE_SIZE,
     MANUAL_AUDIT_SEED,
     N_PROMPTS,
+    TRANSLATION_AUDIT_SAMPLE_SIZE,
+    TRANSLATION_AUDIT_SEED,
 )
 from framing_sensitivity.refusal import classify_refusal
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--input",
+        default="results/completions/completions.csv",
+        help="Path to the completions CSV.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default="results",
+        help="Directory where analysis/ and figures/ outputs will be written.",
+    )
+    parser.add_argument(
+        "--model-label",
+        default=None,
+        help="Analyze only a specific model label when the completions file contains multiple models.",
+    )
+    return parser.parse_args()
 
 
 def render_figure_1(refusal_rates: pd.DataFrame, destination: Path) -> None:
@@ -47,18 +70,20 @@ def render_figure_1(refusal_rates: pd.DataFrame, destination: Path) -> None:
 
 
 def render_figure_2(prompt_level_df: pd.DataFrame, destination: Path) -> None:
-    heatmap_df = prompt_level_df[list(FRAME_ORDER)]
-    fig, ax = plt.subplots(figsize=(6, 12))
-    image = ax.imshow(heatmap_df.values, aspect="auto", cmap="Blues", vmin=0, vmax=1)
-    ax.set_xticks(range(len(FRAME_ORDER)))
-    ax.set_xticklabels([name.title() for name in FRAME_ORDER])
-    yticks = list(range(0, len(heatmap_df), 10))
-    ax.set_yticks(yticks)
-    ax.set_yticklabels([str(index + 1) for index in yticks])
-    ax.set_xlabel("Framing")
-    ax.set_ylabel("Prompt index")
+    heatmap_df = prompt_level_df[list(FRAME_ORDER)].T
+    fig, ax = plt.subplots(figsize=(10, 2.8))
+    image = ax.imshow(heatmap_df.values, aspect="auto", cmap="Blues", vmin=0, vmax=1, interpolation="nearest")
+    xticks = list(range(0, heatmap_df.shape[1], 10))
+    if xticks[-1] != heatmap_df.shape[1] - 1:
+        xticks.append(heatmap_df.shape[1] - 1)
+    ax.set_xticks(xticks)
+    ax.set_xticklabels([str(index + 1) for index in xticks])
+    ax.set_yticks(range(len(FRAME_ORDER)))
+    ax.set_yticklabels([name.title() for name in FRAME_ORDER])
+    ax.set_xlabel("Prompt index")
+    ax.set_ylabel("Framing")
     ax.set_title("Figure 2. Prompt-level refusal consistency")
-    colorbar = fig.colorbar(image, ax=ax)
+    colorbar = fig.colorbar(image, ax=ax, fraction=0.035, pad=0.02)
     colorbar.set_label("Refusal")
     fig.tight_layout()
     fig.savefig(destination, dpi=300)
@@ -238,24 +263,140 @@ def build_manual_audit_sample(
     summary_df.to_csv(summary_path, index=False)
 
 
+def build_translation_nonrefusal_audit_sample(
+    completions_df: pd.DataFrame,
+    sample_path: Path,
+    summary_path: Path,
+) -> None:
+    candidate_df = completions_df[
+        (completions_df["decoding_preset"] == "deterministic_main")
+        & (completions_df["frame"] == "translation")
+        & (completions_df["refusal_label"] == 0)
+    ].copy()
+    if candidate_df.empty:
+        pd.DataFrame(
+            columns=[
+                "audit_case_id",
+                "decoding_preset",
+                "prompt_index",
+                "source_row_index",
+                "frame",
+                "prompt_text",
+                "raw_output",
+                "manual_false_negative",
+                "manual_notes",
+            ]
+        ).to_csv(sample_path, index=False)
+        pd.DataFrame(
+            [
+                {
+                    "sample_size_requested": TRANSLATION_AUDIT_SAMPLE_SIZE,
+                    "sample_size_available": 0,
+                    "sample_size_reviewed": 0,
+                    "false_negative_count": 0,
+                    "false_negative_rate": np.nan,
+                }
+            ]
+        ).to_csv(summary_path, index=False)
+        return
+
+    sample_size = min(TRANSLATION_AUDIT_SAMPLE_SIZE, len(candidate_df))
+    sample_df = candidate_df.sample(n=sample_size, random_state=TRANSLATION_AUDIT_SEED).sort_values(
+        ["prompt_index", "frame_order"]
+    )
+    sample_df = sample_df[
+        [
+            "decoding_preset",
+            "prompt_index",
+            "source_row_index",
+            "frame",
+            "prompt_text",
+            "raw_output",
+        ]
+    ].copy()
+    sample_df.insert(0, "audit_case_id", range(1, len(sample_df) + 1))
+    sample_df["manual_false_negative"] = pd.NA
+    sample_df["manual_notes"] = ""
+
+    if sample_path.exists():
+        existing_df = pd.read_csv(sample_path)
+        merge_keys = ["decoding_preset", "prompt_index", "source_row_index", "frame", "prompt_text", "raw_output"]
+        reusable_columns = [
+            column
+            for column in ["manual_false_negative", "manual_notes"]
+            if column in existing_df.columns
+        ]
+        if reusable_columns:
+            sample_df = sample_df.merge(
+                existing_df[merge_keys + reusable_columns],
+                on=merge_keys,
+                how="left",
+                suffixes=("", "_existing"),
+            )
+            for column in reusable_columns:
+                existing_column = f"{column}_existing"
+                sample_df[column] = sample_df[column].where(
+                    sample_df[column].notna(),
+                    sample_df[existing_column],
+                )
+                sample_df = sample_df.drop(columns=[existing_column])
+    sample_df.to_csv(sample_path, index=False)
+
+    reviewed_df = sample_df.dropna(subset=["manual_false_negative"]).copy()
+    reviewed_df["manual_false_negative"] = reviewed_df["manual_false_negative"].astype(float)
+    false_negative_rate = (
+        float(reviewed_df["manual_false_negative"].mean()) if not reviewed_df.empty else np.nan
+    )
+    summary_df = pd.DataFrame(
+        [
+            {
+                "sample_size_requested": TRANSLATION_AUDIT_SAMPLE_SIZE,
+                "sample_size_available": sample_size,
+                "sample_size_reviewed": int(len(reviewed_df)),
+                "false_negative_count": int(reviewed_df["manual_false_negative"].sum()) if not reviewed_df.empty else 0,
+                "false_negative_rate": false_negative_rate,
+            }
+        ]
+    )
+    summary_df.to_csv(summary_path, index=False)
+
+
 def main() -> None:
-    completions_path = REPO_ROOT / "results" / "completions" / "completions.csv"
-    analysis_dir = REPO_ROOT / "results" / "analysis"
-    figures_dir = REPO_ROOT / "results" / "figures"
+    args = parse_args()
+    completions_path = REPO_ROOT / args.input
+    output_root = REPO_ROOT / args.output_dir
+    analysis_dir = output_root / "analysis"
+    figures_dir = output_root / "figures"
     manual_audit_sample_path = analysis_dir / "manual_flagged_audit_sample.csv"
     manual_audit_summary_path = analysis_dir / "manual_flagged_audit_summary.csv"
+    translation_audit_sample_path = analysis_dir / "translation_nonrefusal_audit_sample.csv"
+    translation_audit_summary_path = analysis_dir / "translation_nonrefusal_audit_summary.csv"
 
     analysis_dir.mkdir(parents=True, exist_ok=True)
     figures_dir.mkdir(parents=True, exist_ok=True)
 
     completions_df = pd.read_csv(completions_path)
+    if "model_label" not in completions_df.columns:
+        completions_df["model_label"] = "llama3_8b_instruct"
+    requested_model_label = args.model_label
+    available_model_labels = sorted(completions_df["model_label"].unique())
+    if requested_model_label is None:
+        if len(available_model_labels) > 1:
+            raise ValueError(
+                f"Multiple model labels found {available_model_labels}. Re-run with --model-label to analyze one model at a time."
+            )
+        requested_model_label = available_model_labels[0]
+    completions_df = completions_df[completions_df["model_label"] == requested_model_label].copy()
+    if completions_df.empty:
+        raise ValueError(f"No rows found for model_label={requested_model_label!r}.")
+
     expected_inferences = N_PROMPTS * len(FRAME_ORDER) * len(DECODING_PRESETS)
     if len(completions_df) != expected_inferences:
         raise ValueError(
             f"Expected {expected_inferences} completions but found {len(completions_df)}. "
             "Run the full inference pipeline before analysis."
         )
-    if completions_df.duplicated(subset=["decoding_preset", "prompt_index", "frame"]).any():
+    if completions_df.duplicated(subset=["model_label", "decoding_preset", "prompt_index", "frame"]).any():
         raise ValueError("Duplicate decoding_preset/prompt_index/frame rows found in completions.csv.")
     expected_presets = set(DECODING_PRESETS)
     actual_presets = set(completions_df["decoding_preset"].unique())
@@ -280,6 +421,9 @@ def main() -> None:
     subgroup_records = []
     fsi_summary_records = []
     summary = {
+        "model_label": requested_model_label,
+        "model_id": completions_df["model_id"].iloc[0] if "model_id" in completions_df.columns else None,
+        "model_revision": completions_df["model_revision"].iloc[0] if "model_revision" in completions_df.columns else None,
         "n_prompts": N_PROMPTS,
         "n_inferences_total": expected_inferences,
         "bootstrap_iterations": BOOTSTRAP_ITERATIONS,
@@ -303,8 +447,10 @@ def main() -> None:
         )
         refusal_rates.insert(0, "analysis_section", decoding_config["analysis_section"])
         refusal_rates.insert(0, "decoding_preset", preset_name)
+        refusal_rates.insert(0, "model_label", requested_model_label)
 
         prompt_level_df = build_prompt_level_df(preset_df)
+        prompt_level_df.insert(0, "model_label", requested_model_label)
         prompt_level_df.insert(0, "analysis_section", decoding_config["analysis_section"])
         prompt_level_df.insert(0, "decoding_preset", preset_name)
         prompt_level_records.extend(prompt_level_df.to_dict(orient="records"))
@@ -325,9 +471,13 @@ def main() -> None:
                 ],
             ]
             statistic, p_value = exact_mcnemar_test(table)
+            n_prompts = sum(sum(row) for row in table)
+            paired_risk_difference = (table[0][1] - table[1][0]) / n_prompts
+            discordant_rate = (table[0][1] + table[1][0]) / n_prompts
             preset_pairwise_results.append(
                 {
                     "decoding_preset": preset_name,
+                    "model_label": requested_model_label,
                     "analysis_section": decoding_config["analysis_section"],
                     "frame_a": frame_a,
                     "frame_b": frame_b,
@@ -335,6 +485,8 @@ def main() -> None:
                     "a_only_refusal": table[0][1],
                     "b_only_refusal": table[1][0],
                     "both_non_refusal": table[1][1],
+                    "paired_risk_difference": paired_risk_difference,
+                    "discordant_rate": discordant_rate,
                     "statistic": statistic,
                     "p_value": p_value,
                 }
@@ -347,6 +499,7 @@ def main() -> None:
 
         fsi_record = {
             "decoding_preset": preset_name,
+            "model_label": requested_model_label,
             "analysis_section": decoding_config["analysis_section"],
             "n_prompts": int(len(prompt_level_df)),
             "bootstrap_iterations": BOOTSTRAP_ITERATIONS,
@@ -370,6 +523,7 @@ def main() -> None:
                 seed=MANUAL_AUDIT_SEED + len(subgroup_records_with_ci) + len(subgroup_records),
             )
             subgroup_record["analysis_section"] = decoding_config["analysis_section"]
+            subgroup_record["model_label"] = requested_model_label
             subgroup_record["bootstrap_iterations"] = BOOTSTRAP_ITERATIONS
             subgroup_record["fsi_ci_low"] = subgroup_bootstrap["fsi_ci_low"]
             subgroup_record["fsi_ci_high"] = subgroup_bootstrap["fsi_ci_high"]
@@ -430,6 +584,15 @@ def main() -> None:
     manual_audit_summary = pd.read_csv(manual_audit_summary_path).iloc[0]
     manual_audit_summary = manual_audit_summary.where(pd.notna(manual_audit_summary), None)
     summary["manual_audit"] = manual_audit_summary.to_dict()
+
+    build_translation_nonrefusal_audit_sample(
+        completions_df,
+        translation_audit_sample_path,
+        translation_audit_summary_path,
+    )
+    translation_audit_summary = pd.read_csv(translation_audit_summary_path).iloc[0]
+    translation_audit_summary = translation_audit_summary.where(pd.notna(translation_audit_summary), None)
+    summary["translation_nonrefusal_audit"] = translation_audit_summary.to_dict()
 
     (analysis_dir / "summary.json").write_text(json.dumps(summary, indent=2))
 

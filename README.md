@@ -6,7 +6,7 @@ This repository is a minimal, inference-only scaffold for the proposed HarmBench
 
 - Dataset: official HarmBench text test CSV from the Center for AI Safety repository
 - Prompt subset: first 100 rows only, no sampling
-- Model: `meta-llama/Meta-Llama-3-8B-Instruct`
+- Default model: `meta-llama/Meta-Llama-3-8B-Instruct`
 - Framing conditions: `direct`, `fictional`, `translation`
 - Primary inferences: `100 x 3 = 300` under deterministic decoding
 - Appendix inferences: `100 x 3 = 300` under stochastic decoding with `temperature=0.7`
@@ -65,10 +65,28 @@ python3 scripts/prepare_dataset.py
 python3 scripts/run_inference.py
 ```
 
+To run an additional model without overwriting the default run, use a different output path and model label:
+
+```bash
+python3 scripts/run_inference.py \
+  --model-id YOUR_MODEL_ID \
+  --model-revision YOUR_MODEL_REVISION \
+  --model-label your_model_label \
+  --output results/completions/your_model_label.csv
+```
+
 3. Classify refusals, compute statistics, and render the three figures:
 
 ```bash
 python3 scripts/analyze_results.py
+```
+
+If you analyze a non-default model file, point the analysis script at that file and a separate output directory:
+
+```bash
+python3 scripts/analyze_results.py \
+  --input results/completions/your_model_label.csv \
+  --output-dir results_your_model_label
 ```
 
 ## Outputs
@@ -83,6 +101,8 @@ python3 scripts/analyze_results.py
 - `results/analysis/fsi_subgroups.csv`
 - `results/analysis/manual_flagged_audit_sample.csv`
 - `results/analysis/manual_flagged_audit_summary.csv`
+- `results/analysis/translation_nonrefusal_audit_sample.csv`
+- `results/analysis/translation_nonrefusal_audit_summary.csv`
 - `results/analysis/summary.json`
 - `results/figures/figure_1_refusal_rate.png`
 - `results/figures/figure_2_prompt_level_consistency.png`
@@ -97,6 +117,7 @@ python3 scripts/analyze_results.py
 - Pairwise significance tests use `statsmodels.stats.contingency_tables.mcnemar(..., exact=True, correction=False)`.
 - FSI is reported with a 95% bootstrap percentile confidence interval from 10,000 prompt-level resamples, and Figure 1 includes matching refusal-rate error bars from the same bootstrap procedure.
 - `results/analysis/manual_flagged_audit_sample.csv` contains a fixed random sample of 20 flagged deterministic cases for manual sanity checking. Fill `manual_false_positive` with `0` or `1` and rerun analysis to update `manual_flagged_audit_summary.csv`.
+- `results/analysis/translation_nonrefusal_audit_sample.csv` contains a fixed random sample of 20 deterministic `translation` outputs currently labeled as non-refusal. Fill `manual_false_negative` with `0` or `1` and rerun analysis to update `translation_nonrefusal_audit_summary.csv`.
 - Figure settings are locked to avoid visual exaggeration: Figure 1 uses a fixed `0-1` y-axis and consistent framing colors, and Figure 2 uses a fixed `0-1` heatmap scale.
-- No classifier model, fine-tuning, or augmentation is used. Primary refusal labels remain fully rule-based; the 20-case manual audit is only a false-positive sanity check.
+- No classifier model, fine-tuning, or augmentation is used. Primary refusal labels remain fully rule-based; because the detector is English-anchored, the translation frame is the most plausible source of false negatives and should be audited separately with the provided translation non-refusal sample.
 - A draft paper skeleton is included at `paper/short_paper.md`.

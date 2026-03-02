@@ -10,7 +10,15 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, set_seed
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from framing_sensitivity.constants import DECODING_PRESETS, FRAME_ORDER, GENERATION_DEFAULTS, MODEL_ID, MODEL_REVISION, N_PROMPTS
+from framing_sensitivity.constants import (
+    DECODING_PRESETS,
+    FRAME_ORDER,
+    GENERATION_DEFAULTS,
+    MODEL_ID,
+    MODEL_LABEL,
+    MODEL_REVISION,
+    N_PROMPTS,
+)
 from framing_sensitivity.refusal import classify_refusal
 
 
@@ -38,14 +46,31 @@ def parse_args() -> argparse.Namespace:
         default=list(DECODING_PRESETS.keys()),
         help="Decoding presets to run. Defaults to both main and appendix presets.",
     )
+    parser.add_argument(
+        "--model-id",
+        default=MODEL_ID,
+        help="Hugging Face model ID to run.",
+    )
+    parser.add_argument(
+        "--model-revision",
+        default=MODEL_REVISION,
+        help="Specific model revision to use. Pass an empty string to use the latest default revision.",
+    )
+    parser.add_argument(
+        "--model-label",
+        default=MODEL_LABEL,
+        help="Short label stored in outputs for this model run.",
+    )
     return parser.parse_args()
 
 
-def load_existing_pairs(path: Path) -> set[tuple[str, int, str]]:
+def load_existing_pairs(path: Path) -> set[tuple[str, str, int, str]]:
     if not path.exists():
         return set()
     existing_df = pd.read_csv(path)
-    return set(zip(existing_df["decoding_preset"], existing_df["prompt_index"], existing_df["frame"]))
+    if "model_label" not in existing_df.columns:
+        existing_df["model_label"] = MODEL_LABEL
+    return set(zip(existing_df["model_label"], existing_df["decoding_preset"], existing_df["prompt_index"], existing_df["frame"]))
 
 
 def build_model_inputs(tokenizer: AutoTokenizer, prompt_text: str, device: torch.device) -> torch.Tensor:
@@ -99,6 +124,7 @@ def main() -> None:
     args = parse_args()
     input_path = REPO_ROOT / args.input
     output_path = REPO_ROOT / args.output
+    model_revision = args.model_revision or None
 
     prompts_df = pd.read_csv(input_path)
     expected_rows = N_PROMPTS * len(FRAME_ORDER)
@@ -110,14 +136,14 @@ def main() -> None:
     if output_path.exists() and not args.resume:
         output_path.unlink()
 
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, revision=MODEL_REVISION)
+    tokenizer = AutoTokenizer.from_pretrained(args.model_id, revision=model_revision)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
 
     dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
     model = AutoModelForCausalLM.from_pretrained(
-        MODEL_ID,
-        revision=MODEL_REVISION,
+        args.model_id,
+        revision=model_revision,
         dtype=dtype,
         device_map="auto",
     )
@@ -129,7 +155,7 @@ def main() -> None:
     for preset_name in args.presets:
         decoding_config = DECODING_PRESETS[preset_name]
         for row in prompts_df.itertuples(index=False):
-            key = (preset_name, row.prompt_index, row.frame)
+            key = (args.model_label, preset_name, row.prompt_index, row.frame)
             if key in completed_pairs:
                 progress.update(1)
                 continue
@@ -159,8 +185,9 @@ def main() -> None:
                     "completion": raw_output,
                     "refusal_label": refusal_label,
                     "matched_pattern": matched_pattern,
-                    "model_id": MODEL_ID,
-                    "model_revision": MODEL_REVISION,
+                    "model_label": args.model_label,
+                    "model_id": args.model_id,
+                    "model_revision": model_revision or "",
                     "temperature": float(decoding_config["temperature"]),
                     "top_p": GENERATION_DEFAULTS["top_p"],
                     "repetition_penalty": GENERATION_DEFAULTS["repetition_penalty"],
