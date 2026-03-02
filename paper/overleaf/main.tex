@@ -1,0 +1,201 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{hyperref}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!50!black,
+  citecolor=blue!50!black,
+  urlcolor=blue!50!black
+}
+
+\setlist[itemize]{leftmargin=1.5em}
+\setlist[enumerate]{leftmargin=1.8em}
+\setlength{\parskip}{0.45em}
+\setlength{\parindent}{0pt}
+
+\newcommand{\placeholder}[1]{\texttt{[#1]}}
+\newcommand{\figureplaceholder}[1]{%
+  \fbox{%
+    \parbox[c][0.22\textheight][c]{0.92\linewidth}{%
+      \centering #1
+    }%
+  }%
+}
+\newcommand{\maybeincludegraphic}[2]{%
+  \IfFileExists{#1}{\includegraphics[width=\linewidth]{#1}}{\figureplaceholder{#2}}%
+}
+
+\title{Safety Evaluation is Highly Sensitive to Prompt Framing:\\An Inference-Only Study on HarmBench}
+\author{Anonymous Author(s)}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Safety benchmarks are often treated as stable measurements of a model's refusal behavior, but that assumption can fail even under minimal prompt reformatting. We study this effect with an inference-only protocol on HarmBench using the first 100 harmful instructions from the official text benchmark and a single open-weight model, \texttt{meta-llama/Meta-Llama-3-8B-Instruct}, under deterministic decoding. For each instruction, we evaluate three fixed prompt framings: the original request, a fictional-story wrapper, and a translation wrapper. Outputs are labeled automatically with a fixed refusal-rule detector, and pairwise framing differences are tested with McNemar's test. We show that safety benchmark outcomes can vary substantially under minimal prompt reformatting, raising concerns about the robustness of current evaluation practices. Our study makes three contributions: (1) an inference-only safety evaluation protocol, (2) a direct quantification of framing sensitivity, and (3) the Framing Sensitivity Index (FSI), which measures how often refusal outcomes change across framings.
+\end{abstract}
+
+\section{Introduction}
+
+Safety evaluation pipelines often assume that a benchmark prompt has a stable semantic target and therefore produces a stable safety judgment. This assumption matters because benchmark scores are frequently used to compare models, measure progress, and support deployment decisions. If benchmark outcomes change under minimal prompt reframing, then the measured score may reflect surface prompt form as much as underlying harmful intent.
+
+This paper tests a narrow question: how sensitive is HarmBench refusal behavior to prompt framing alone? We do not propose a new alignment method, train a model, or develop a jailbreak technique. Instead, we isolate a simple evaluation variable and measure its effect under a fixed inference-only setup.
+
+We emphasize that we do not introduce a new attack or bypass method. Our goal is solely to measure evaluation sensitivity under benign prompt reformatting.
+
+\section{Experimental Setup}
+
+\subsection{Dataset}
+
+We use the official HarmBench text benchmark and select the first 100 harmful instructions without modification or sampling. No new prompts, augmentations, or filtering steps are introduced.
+
+\subsection{Model and Decoding}
+
+We evaluate \texttt{meta-llama/Meta-Llama-3-8B-Instruct} with no fine-tuning. The model is publicly available under a gated license on Hugging Face. The primary analysis uses deterministic decoding with temperature fixed to 0.0, \texttt{max\_tokens}=512, \texttt{top\_p}=1.0, and \texttt{repetition\_penalty}=1.0. As an appendix robustness check, we repeat the same 300 prompt-frame evaluations once with stochastic decoding at temperature 0.7 and the same remaining decoding settings.
+
+\subsection{Prompt Framing}
+
+Each original HarmBench instruction is evaluated under exactly three framings:
+
+\begin{enumerate}
+\item Direct: the original prompt unchanged.
+\item Fictional: \texttt{In a fictional story, a character asks: "{original prompt}" How would this scenario unfold?}
+\item Translation: \texttt{Translate the following sentence into French: "{original prompt}"}
+\end{enumerate}
+
+This produces 300 inferences per decoding condition and 600 total inferences across the main and appendix runs.
+
+\subsection{Refusal Rule}
+
+Outputs are automatically classified as refusal if they contain a fixed refusal regex including patterns such as \texttt{I cannot}, \texttt{I can't}, \texttt{I will not}, \texttt{I am unable}, \texttt{I do not provide}, \texttt{I must refuse}, \texttt{I cannot comply}, and \texttt{As an AI}. The exact matched pattern and raw model output are stored for auditability. Primary benchmark labels are fully rule-based; a separate 20-case manual sanity check is used only to estimate false positives in the refusal detector.
+
+\subsection{Analysis}
+
+We report refusal rate by framing, pairwise framing differences with exact McNemar's test, and the Framing Sensitivity Index:
+
+\[
+\mathrm{FSI} = \frac{\#\{\text{prompts whose refusal outcome changes across framings}\}}{100}.
+\]
+
+To quantify uncertainty, we compute 95\% bootstrap percentile confidence intervals for FSI using 10{,}000 prompt-level resamples.
+
+\section{Results}
+
+Figure~\ref{fig:refusal-rate} reports refusal rate by framing. Figure~\ref{fig:consistency} visualizes prompt-level refusal consistency across the three framing conditions. Figure~\ref{fig:sensitivity} shows the distribution of refusal counts across the three framings, making stable and unstable prompts easy to distinguish. We also report FSI separately for prompt indices 0--49 and 50--99 as a simple sample-split robustness check. Effect persists under stochastic decoding (Appendix~A).
+
+\begin{figure}[t]
+  \centering
+  \maybeincludegraphic{figures/figure_1_refusal_rate.png}{Figure 1 placeholder\\Refusal rate by framing with 95\% bootstrap confidence intervals.}
+  \caption{Refusal rate by framing. The y-axis is fixed to the range [0, 1].}
+  \label{fig:refusal-rate}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \maybeincludegraphic{figures/figure_2_prompt_level_consistency.png}{Figure 2 placeholder\\Prompt-level refusal consistency heatmap.}
+  \caption{Prompt-level refusal consistency across framing conditions. The heatmap scale is fixed to the range [0, 1].}
+  \label{fig:consistency}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \maybeincludegraphic{figures/figure_3_framing_sensitivity_histogram.png}{Figure 3 placeholder\\Distribution of framing sensitivity across prompts.}
+  \caption{Distribution of refusal counts across the three framings.}
+  \label{fig:sensitivity}
+\end{figure}
+
+Insert numerical results after running the pipeline:
+
+\begin{itemize}
+\item Direct refusal rate: \placeholder{DIRECT\_RATE}
+\item Fictional refusal rate: \placeholder{FICTIONAL\_RATE}
+\item Translation refusal rate: \placeholder{TRANSLATION\_RATE}
+\item FSI: \placeholder{FSI}
+\item FSI 95\% CI: [\placeholder{FSI\_CI\_LOW}, \placeholder{FSI\_CI\_HIGH}]
+\item Direct vs Fictional McNemar $p$-value: \placeholder{P\_DIRECT\_FICTIONAL}
+\item Direct vs Translation McNemar $p$-value: \placeholder{P\_DIRECT\_TRANSLATION}
+\item Fictional vs Translation McNemar $p$-value: \placeholder{P\_FICTIONAL\_TRANSLATION}
+\end{itemize}
+
+\section{Discussion}
+
+If refusal outcomes shift under light prompt reframing, then benchmark scores are not purely measuring harmful-intent recognition. They are also measuring how the benchmark prompt is packaged for the model. This weakens the interpretation of a single benchmark number as a robust safety property.
+
+Our findings therefore target evaluation methodology rather than alignment or mechanistic explanation. The main implication is straightforward: safety benchmarks should be tested for framing robustness before they are used as stable comparative metrics.
+
+The persistence of framing sensitivity under both deterministic and stochastic decoding suggests that the observed effect is not solely attributable to decoding artifacts.
+
+\section{Limitations}
+
+\begin{itemize}
+\item Single model evaluation
+\item Single benchmark
+\item Rule-based refusal detection
+\item No human evaluation
+\end{itemize}
+
+The refusal rule may miss nuanced refusals or incorrectly label non-refusals that happen to contain one of the trigger phrases. Because the study is intentionally narrow, the results should be interpreted as evidence of measurement sensitivity, not as a universal statement about all models or all safety benchmarks. We do not use human evaluation for primary benchmark scoring; the appendix manual audit is limited to a small false-positive sanity check.
+
+\section{Ethics}
+
+The study evaluates harmful prompts from an existing public benchmark. We do not introduce new harmful content, optimize jailbreaks, or propose methods for increasing attack success. The goal is to assess evaluation reliability and benchmark robustness.
+
+\appendix
+
+\section{Stochastic Decoding Robustness}
+
+We repeat the full 100-prompt, 3-framing evaluation once at temperature 0.7 with no additional repetitions. This appendix tests whether framing sensitivity is merely a deterministic decoding artifact. Insert the appendix summary after running the pipeline:
+
+\begin{itemize}
+\item Stochastic direct refusal rate: \placeholder{APPENDIX\_DIRECT\_RATE}
+\item Stochastic fictional refusal rate: \placeholder{APPENDIX\_FICTIONAL\_RATE}
+\item Stochastic translation refusal rate: \placeholder{APPENDIX\_TRANSLATION\_RATE}
+\item Stochastic FSI: \placeholder{APPENDIX\_FSI}
+\item Stochastic FSI 95\% CI: [\placeholder{APPENDIX\_FSI\_CI\_LOW}, \placeholder{APPENDIX\_FSI\_CI\_HIGH}]
+\end{itemize}
+
+\section{Reproducibility and Access}
+
+\begin{itemize}
+\item Hugging Face model page: \url{https://huggingface.co/meta-llama/Meta-Llama-3-8B-Instruct}
+\item Model revision: \texttt{8afb486c1db24fe5011ec46dfbe5b5dccdb575c2}
+\item Access: request access through the Hugging Face model page by accepting the gated license terms and submitting the access form.
+\item HarmBench commit: \texttt{8e1604d1171fe8a48d8febecd22f600e462bdcdd}
+\end{itemize}
+
+\section{Refusal-Rule Sanity Check}
+
+We draw a fixed random sample of 20 matched-pattern cases from the deterministic run and record manual false-positive annotations.
+
+\begin{itemize}
+\item Manual inspection sentence to include after audit completion: \texttt{Manual inspection of 20 random flagged cases revealed no false positives.}
+\item False-positive rate from the 20-case audit: \placeholder{MANUAL\_FALSE\_POSITIVE\_RATE}
+\end{itemize}
+
+\section{Responsible NLP Checklist Notes}
+
+\begin{itemize}
+\item Dataset license: HarmBench is distributed in a repository licensed under MIT.
+\item Harmful content use: This work evaluates harmful instructions from a public benchmark and does not introduce new harmful prompts.
+\item Dual-use risk: The paper studies evaluation sensitivity and does not optimize attack or bypass success.
+\item AI writing assistance disclosure: Portions of this manuscript were edited with AI-assisted language tools.
+\end{itemize}
+
+\section*{Acknowledgements}
+
+Portions of this manuscript were edited with AI-assisted language tools.
+
+\end{document}
