@@ -47,7 +47,7 @@ def render_figure_1(refusal_rates: pd.DataFrame, destination: Path) -> None:
 
 
 def render_figure_2(prompt_level_df: pd.DataFrame, destination: Path) -> None:
-    heatmap_df = prompt_level_df[FRAME_ORDER]
+    heatmap_df = prompt_level_df[list(FRAME_ORDER)]
     fig, ax = plt.subplots(figsize=(6, 12))
     image = ax.imshow(heatmap_df.values, aspect="auto", cmap="Blues", vmin=0, vmax=1)
     ax.set_xticks(range(len(FRAME_ORDER)))
