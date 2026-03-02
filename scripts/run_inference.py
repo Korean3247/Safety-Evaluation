@@ -50,12 +50,17 @@ def load_existing_pairs(path: Path) -> set[tuple[str, int, str]]:
 
 def build_model_inputs(tokenizer: AutoTokenizer, prompt_text: str, device: torch.device) -> torch.Tensor:
     messages = [{"role": "user", "content": prompt_text}]
-    input_ids = tokenizer.apply_chat_template(
+    templated_prompt = tokenizer.apply_chat_template(
         messages,
         add_generation_prompt=True,
-        return_tensors="pt",
+        tokenize=False,
     )
-    return input_ids.to(device)
+    model_inputs = tokenizer(
+        templated_prompt,
+        return_tensors="pt",
+        add_special_tokens=False,
+    )
+    return model_inputs["input_ids"].to(device)
 
 
 def generate_completion(
@@ -113,7 +118,7 @@ def main() -> None:
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
         revision=MODEL_REVISION,
-        torch_dtype=dtype,
+        dtype=dtype,
         device_map="auto",
     )
     model.eval()
